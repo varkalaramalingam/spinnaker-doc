@@ -1,0 +1,29 @@
+#/opt/rosco/config/packer/apache2-build-ami.json
+#ami-0477d583bd1c9664b Created an base ami with apache2 and java8 installed on it
+
+{
+  "variables": {
+
+  },
+  "builders": [
+    {
+      "type": "amazon-ebs",
+      "access_key": "AKIA4IZ6IPOXXXXXXX",
+      "secret_key": "TqeEe1jcITugMYHyt6idzqCmXXXXXXXxxxxXxX",
+      "region": "us-west-2",
+      "source_ami": "ami-0477d583bd1c9664b",
+      "instance_type": "t2.micro",
+      "ssh_username": "ubuntu",
+      "ami_name": "apache-ami-packer-{{timestamp}}"
+    }
+  ],
+
+  "provisioners": [
+  {
+    "type": "shell",
+    "inline": [ "aws s3 cp s3://ischool-artifacts/ui/index.html /home/ubuntu/",
+            "sudo cp -rv /home/ubuntu/index.html /var/www/html/",
+            "sudo systemctl restart apache2" ]
+  }
+  ]
+}

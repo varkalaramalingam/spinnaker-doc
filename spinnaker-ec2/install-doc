@@ -1,0 +1,202 @@
+Install java11:
+---------------
+sudo bash
+apt-get update
+apt-get install openjdk-11-jdk -y
+
+Install awscli:
+---------------
+apt-get install awscli -y
+aws configure
+
+Create roles:
+-------------
+role: spinnakerManaged
+policies: AmazonEC2FullAccess, PowerUserAccess, PassRole-and-Certificates(Inline policy)
+
+PassRole-and-Certificates(Inline policy):
+-----------
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "iam:ListServerCertificates",
+                "iam:PassRole"
+            ],
+            "Resource": [
+                "*"
+            ],
+            "Effect": "Allow"
+        }
+    ]
+}
+---------
+Role-Trust relationships- edit Trust relationships:
+---
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::843554782143:user/qwerty"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+----
+
+Role: BaseIAMRole
+Policies: AdministratorAccess
+
+Setup tags for all subnets:
+-----------------------
+https://docs.armory.io/docs/armory-admin/aws/aws-subnets-configure/
+public-subnets:
+Key: immutable_metadata
+Value: {"purpose": "elb-subnet"}
+
+If we have private subnets
+private-subnets:
+Key: immutable_metadata
+Value: {"purpose": "ec2-subnet"}
+
+Create security group opened 80 port in it
+ex: apache 80 port required
+
+1. Install Halyard
+--------------------------
+sudo bash
+curl -O https://raw.githubusercontent.com/spinnaker/halyard/master/install/debian/InstallHalyard.sh
+sudo bash InstallHalyard.sh
+user: ubuntu
+hal -v
+sudo update-halyard
+
+
+2 Enable AWS Provider
+------------------------------------
+export AWS_ACCOUNT_NAME=spinnaker
+export ACCOUNT_ID=843554782143
+export ROLE_NAME=role/spinnakerManaged
+
+hal config provider aws account add ${AWS_ACCOUNT_NAME}  --account-id ${ACCOUNT_ID} --assume-role ${ROLE_NAME} --regions us-west-2
+#hal config provider aws account edit ${AWS_ACCOUNT_NAME} --regions us-west-2
+hal config provider aws edit --access-key-id AKIA4IZ6IPO75UKITO2J --secret-access-key
+hal config provider aws enable
+
+
+3 Local-install
+----------------------
+hal config deploy edit --type localdebian
+
+4 Enable s3
+-------------------
+hal config storage s3 edit  --access-key-id AKIA4IZ6IPOXXXXXXX --secret-access-key --region us-west-2
+hal config storage edit --type s3
+hal config storage s3 edit --bucket spinnaker-storage-ec2
+
+5 Enable jenkins
+-------------------------
+hal config ci jenkins enable
+hal config ci jenkins master add Jenkins-Master --address http://jenkins.wysemeet.cf:8080 --username jenkins --password
+hal config ci jenkins master edit Jenkins-Master --csrf true
+
+
+6 Enable github Artifacts
+-------------------------------------
+hal config artifact github enable
+hal config artifact github account add spinnaker-github --username ramalingamvarkala --password --token
+XXXXXXXXX
+bdf8cffee32f065bc76XXXXXXXXXXXXXXX
+
+7 Select version
+-------------------------
+hal version list
+hal config version edit --version 1.24.2
+
+8 Expose spinnaker to end users
+https://blog.spinnaker.io/exposing-spinnaker-to-end-users-4808bc936698
+----------------------------
+echo "host: 0.0.0.0" | tee \
+    ~/.hal/default/service-settings/gate.yml \
+    ~/.hal/default/service-settings/deck.yml
+	
+hal config security ui edit --override-base-url "http://34.223.102.194:9000"
+hal config security api edit --override-base-url "http://34.223.102.194:8084"
+
+
+
+9 Apply configuration
+--------------------------------
+hal deploy apply
+#or 
+#sudo bash /home/omniadmin/.hal/default/install.sh
+
+Check apache2:
+vim /etc/apache2/sites-enabled/spinnaker.conf
+------
+<VirtualHost 0.0.0.0:9000>
+#  <IfModule ssl_module>
+#    SSLEngine on
+#    SSLCertificateFile ""
+#    SSLCertificateKeyFile ""
+#  </IfModule>
+  DocumentRoot /opt/deck/html
+
+  <Directory "/opt/deck/html/">
+     Require all granted
+  </Directory>
+</VirtualHost>
+---------------------
+systemctl restart apache2
+
+Check rosco:
+vim /opt/rosco/config/rosco.yml
+vim /opt/spinnaker/config/rosco.yml
+---
+    - baseImage:
+        id: apache2
+        shortDescription: apache2-U18.04
+        detailedDescription: Installed apache on ubuntu18.04
+        packageType: deb
+        templateFile: apache2-build-ami.json
+      virtualizationSettings:
+      - region: us-west-2
+        virtualizationType: hvm
+        instanceType: t2.micro
+        sourceAmi: ami-0477d583bd1c9664b
+        sshUserName: ubuntu
+        spotPrice: '0'
+        spotPriceAutoProduct: Linux/UNIX (Amazon VPC)
+-----
+systemctl restart rosco.service
+
+Check all ports:
+----------------
+root@ip-172-31-52-238:~# netstat -tunlp
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 0.0.0.0:9000            0.0.0.0:*               LISTEN      9243/apache2        
+tcp        0      0 127.0.0.1:6379          0.0.0.0:*               LISTEN      8300/redis-server 1 
+tcp        0      0 127.0.0.53:53           0.0.0.0:*               LISTEN      712/systemd-resolve 
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      945/sshd            
+tcp6       0      0 127.0.0.1:7002          :::*                    LISTEN      8320/java           
+tcp6       0      0 :::8064                 :::*                    LISTEN      2302/java           
+tcp6       0      0 ::1:6379                :::*                    LISTEN      8300/redis-server 1 
+tcp6       0      0 127.0.0.1:8080          :::*                    LISTEN      8357/java           
+tcp6       0      0 127.0.0.1:8083          :::*                    LISTEN      8353/java           
+tcp6       0      0 :::8084                 :::*                    LISTEN      8326/java           
+tcp6       0      0 :::22                   :::*                    LISTEN      945/sshd            
+tcp6       0      0 127.0.0.1:8087          :::*                    LISTEN      10720/java          
+tcp6       0      0 127.0.0.1:8088          :::*                    LISTEN      8354/java           
+tcp6       0      0 127.0.0.1:8089          :::*                    LISTEN      8317/java           
+udp        0      0 127.0.0.53:53           0.0.0.0:*                           712/systemd-resolve 
+udp        0      0 172.31.52.238:68        0.0.0.0:*                           692/systemd-network 
+root@ip-172-31-52-238:~#
+
+Spinnaker-demo
+https://spinnaker.io/guides/tutorials/codelabs/hello-deployment/
+https://docs.armory.io/docs/spinnaker-user-guides/aws-guides/aws-deploy/

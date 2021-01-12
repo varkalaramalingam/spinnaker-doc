@@ -1,0 +1,182 @@
+--------------------
+INSTALL SPINNAKER ON EKS
+--------------------
+Success process
+Step1: gitpush will trigger spinnake pieline 
+step2: spinnaker pieline at first stage will trigger jenkins pipeline for build 
+step3: completion of jenkins build spinnaker will deploy latest image 
+step4: destroy old replicas of deployment
+
+Success: https://www.youtube.com/watch?v=N4e3Zf1yFWY&feature=youtu.be
+Old reference: https://levelup.gitconnected.com/architecting-a-ci-cd-pipeline-for-container-and-microservice-based-applications-120f4b470681
+New version:
+reference: https://www.youtube.com/watch?v=9EUyMjR6jSc&t=1601s&ab_channel=JustmeandOpensource
+https://github.com/justmeandopensource/kubernetes/blob/master/docs/setup-spinnaker.md
+
+https://spinnaker.io/setup/install/providers/kubernetes-v2/aws-eks/
+Install awscli:
+--------------------
+sudo bash
+apt-get update && apt-get install awscli -y
+aws configure
+
+Connect to eks cluster:
+----------------------------------
+aws eks update-kubeconfig --name eks-cluster
+
+Install Kubectl:
+----------------------
+curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x ./kubectl
+sudo mv ./kubectl /usr/local/bin/kubectl
+kubectl version --client
+source /usr/share/bash-completion/bash_completion
+echo 'source <(kubectl completion bash)' >>~/.bashrc
+source .bashrc
+kubectl get all
+
+
+Install Halyard:
+----------------------
+curl -O https://raw.githubusercontent.com/spinnaker/halyard/master/install/debian/InstallHalyard.sh
+apt-get install openjdk-11-jdk -y
+java -version
+sudo bash InstallHalyard.sh
+
+root@ip-172-31-32-69:~# sudo bash InstallHalyard.sh
+Please supply a non-root user to run Halyard as: ubuntu
+hal -v
+
+
+Enable docker-registries:
+--------------------------------------
+hal config provider docker-registry enable
+
+ADDRESS=843554782143.dkr.ecr.ap-south-1.amazonaws.com
+REGION=ap-south-1
+
+hal config provider docker-registry account add my-ecr-registry \
+  --address $ADDRESS \
+ --username AWS \
+ --password-command "aws --region $REGION ecr get-authorization-token --output text --query 'authorizationData[].authorizationToken' | base64 -d | sed 's/^AWS://'"
+ 
+ Enable kubernetes:
+ ----------------------------
+hal config provider kubernetes enable
+hal config provider kubernetes account add my-k8s --provider-version v2 --context $(kubectl config current-context)
+hal config features edit --artifacts true
+hal config deploy edit --type distributed --account-name my-k8s
+for old version:
+hal config provider kubernetes account add my-k8s --provider-version v1 --docker-registries my-ecr-registry
+
+Install helm:
+------------------
+wget https://get.helm.sh/helm-v3.0.0-linux-amd64.tar.gz
+tar -zxvf helm-v3.0.0-linux-amd64.tar.gz
+mv linux-amd64/helm /usr/local/bin/helm
+helm version --short
+kubectl create ns spinnaker
+
+Install Minio:
+-------------------
+MINIO-STORAGE(NOT USED) used s3
+helm repo add stable https://charts.helm.sh/stable
+helm repo update
+helm install minio --namespace spinnaker --set accessKey="myaccesskey" --set secretKey="mysecretkey" --set persistence.enabled=false stable/minio
+helm list --all-namespaces
+kubectl get all -n spinnaker
+
+Enable s3-storage:
+----------------------------
+hal config storage s3 edit  --access-key-id AKIA4IZ6IPO75UXXXXXX --secret-access-key --region ap-south-1
+hal config storage edit --type s3
+hal config storage s3 edit --bucket spin-dece46ba-e8f0-4bef-8286-e220b78a36eb
+
+Enable Jenkins:
+------------------------
+hal config ci jenkins enable
+
+hal config ci jenkins master add my-jenkins-master \
+--address http://jenkins.wysemeet.cf:8080 \
+--username jenkins \
+--password
+
+hal config ci jenkins master edit my-jenkins-master --csrf true
+
+Enable github Artifacts
+---------------------------------
+hal config artifact github enable
+hal config artifact github account add spinnaker-github --username ramalingamvarkala --password --token
+Password: xxxxxxxxx
+Token: bdf8cffee32f065bc76c58025xxxxxxxxxxxx
+
+CONTEXT=$(kubectl config current-context)
+kubectl apply --context $CONTEXT -f https://www.spinnaker.io/downloads/kubernetes/service-account.yml
+TOKEN=$(kubectl get secret --context $CONTEXT \
+   $(kubectl get serviceaccount spinnaker-service-account \
+       --context $CONTEXT \
+       -n spinnaker \
+       -o jsonpath='{.secrets[0].name}') \
+   -n spinnaker \
+   -o jsonpath='{.data.token}' | base64 --decode)
+   
+kubectl config set-credentials ${CONTEXT}-token-user --token $TOKEN
+kubectl config set-context $CONTEXT --user ${CONTEXT}-token-user
+
+
+
+
+    
+
+
+hal version list
+hal config version edit --version 1.24.1
+
+hal deploy apply
+
+GOT ERROR:
+-----------
+Validation in Global:
+! ERROR Failed to backup user file: /root/.kube/config
+
+- Failed to deploy Spinnaker.
+---------
+
+SOLUTION:
+----------
+vim .hal/config
+change 
+kubeconfigFile: /root/.kube/config 
+to 
+kubeconfigFile: /home/ubuntu/.kube/config
+----------
+hal deploy apply
+
+
+kubectl get all -n spinnaker
+kubectl get svc -n spinnaker
+kubectl -n spinnaker edit service spin-deck
+kubectl -n spinnaker edit service spin-gate
+change type ClusterIP to LoadBalaner for 2 services
+
+For Loadbalancers
+hal config security ui edit --override-base-url "http://a5103e9b576e64dcd8ebb76d2250c434-358414185.ap-south-1.elb.amazonaws.com:9000"
+hal config security api edit --override-base-url "http://aa1528d21776445dd9990f62816955fc-717468309.ap-south-1.elb.amazonaws.com:8084"
+hal deploy apply
+
+hal config security ui edit --override-base-url "http://a066c65c8a18340a1918a77e4fa5388d-168282703.ap-south-1.elb.amazonaws.com"
+hal config security api edit --override-base-url "http://a327845d1e311482c855066a77378b96-60374038.ap-south-1.elb.amazonaws.com"
+
+
+
+
+For NodePort
+hal config security ui edit --override-base-url "http://<worker-node-ip>:<nodePort>"
+hal config security api edit --override-base-url "http://worker-node-ip>:<nodePort>"
+hal deploy apply
+
+how to deploy sample application using spinnaker to kubernetes
+paulbouwer/hello-kubernetes:1.5
+https://gke-spinnaker.storage.googleapis.com/sample-app.tgz
+https://www.digitalocean.com/community/tutorials/how-to-set-up-a-cd-pipeline-with-spinnaker-on-digitalocean-kubernetes
+

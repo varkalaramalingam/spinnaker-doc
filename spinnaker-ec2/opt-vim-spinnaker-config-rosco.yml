@@ -1,0 +1,16 @@
+    baseImages:
+    - baseImage:
+        id: apache2
+        shortDescription: apache2-U18.04
+        detailedDescription: Installed apache on ubuntu18.04
+        packageType: deb
+        templateFile: apache2-build-ami.json
+      virtualizationSettings:
+      - region: us-west-2
+        virtualizationType: hvm
+        instanceType: t2.micro
+        sourceAmi: ami-0477d583bd1c9664b
+        sshUserName: ubuntu
+        spotPrice: '0'
+        spotPriceAutoProduct: Linux/UNIX (Amazon VPC)
+
